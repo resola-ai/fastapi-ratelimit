@@ -1,2 +1,2 @@
-# fastapi-rsl-ratelimit
+# fastapi-ratelimit
 FastAPI Rate Limit
