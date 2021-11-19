@@ -1,7 +1,7 @@
 # fastapi-ratelimit
 FastAPI Rate Limit
 
-how to package fastapi-ratelimit python project
+How to package fastapi-ratelimit python project
 
 These are archives that are uploaded to the Python Package Index and can be installed by pip.
 Make sure you have the latest version of PyPA’s build installed:
