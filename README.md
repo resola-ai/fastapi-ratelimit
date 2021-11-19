@@ -29,6 +29,7 @@ poetry add fastapi-ratelimit
 pip install fastapi-ratelimit
 ```
 Set rate limit for FastAPI before starting server
+
 Example code
 - main.py
 ```bash
