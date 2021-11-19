@@ -28,16 +28,18 @@ poetry add fastapi-ratelimit
 # Using pip
 pip install fastapi-ratelimit
 ```
-example code
+Set rate limit for FastAPI before starting server
+Example code
 - main.py
 ```bash
 # Import package
 from fastapi import FastAPI
 from fastapi_ratelimit import RateLimitExceededError, RateLimitMiddleware, limiter, rate_limit_exceeded_handler, set_settings
 from core.config import settings # settings is class, where the configuration parameters are saved
+from api.responses import JSONResponse
 
 ...
-# setup FastAPI
+# Setup FastAPI
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.API_VERSION,
@@ -45,19 +47,20 @@ app = FastAPI(
     default_response_class=JSONResponse,
 )
 
-# set rate limit for FastAPI
+# Set rate limit for FastAPI
 set_settings(settings=settings)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceededError, rate_limit_exceeded_handler)
 app.add_middleware(RateLimitMiddleware)
 ```
+Set limiter for some api
 - example.py
 ```bash
 ...
 from fastapi_ratelimit import limiter
 ...
 @router.post("/example", response_model=schemas.Example)
-@limiter.limit("2/minutes") # up to 2 requests in 1 minute
+@limiter.limit("2/minutes") # Up to 2 requests in 1 minute
 async def example_request(
     request: Request, db: Session = Depends(deps.get_db)
 ) -> Any:
