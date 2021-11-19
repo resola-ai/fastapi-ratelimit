@@ -53,6 +53,9 @@ app.add_middleware(RateLimitMiddleware)
 ```
 - example.py
 ```bash
+...
+from fastapi_ratelimit import limiter
+...
 @router.post("/example", response_model=schemas.Example)
 @limiter.limit("2/minutes") # up to 2 requests in 1 minute
 async def example_request(
