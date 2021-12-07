@@ -35,7 +35,7 @@ Example code
 ```bash
 # Import package
 from fastapi import FastAPI
-from fastapi_ratelimit import RateLimitExceededError, RateLimitMiddleware, limiter, rate_limit_exceeded_handler, set_settings
+from fastapi_ratelimit import RateLimitExceededError, RateLimitMiddleware, Limiter, rate_limit_exceeded_handler
 from core.config import settings # settings is class, where the configuration parameters are saved
 from api.responses import JSONResponse
 
@@ -49,8 +49,10 @@ app = FastAPI(
 )
 
 # Set rate limit for FastAPI
-set_settings(settings=settings)
-app.state.limiter = limiter
+app.state.limiter = Limiter(
+    limit_default=settings.RATELIMIT_DEFAULT, # ex: "60/minute" (default is up to 60 requests in 1 minute)
+    storage_uri=settings.RATELIMIT_STORAGE_URL # ex: "redis://redis:6379/1" (URL redis)
+)
 app.add_exception_handler(RateLimitExceededError, rate_limit_exceeded_handler)
 app.add_middleware(RateLimitMiddleware)
 ```

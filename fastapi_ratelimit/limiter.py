@@ -6,6 +6,7 @@ import inspect
 import itertools
 import logging
 import time
+import os
 from email.utils import formatdate, parsedate_to_datetime
 from functools import wraps
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, TypeVar, Union, cast
@@ -29,6 +30,18 @@ AnyCallable = Callable[..., Any]
 StrOrCallableStr = Union[str, Callable[..., str]]
 
 
+class Settings:
+    RATELIMIT_ENABLED = os.getenv("RATELIMIT_ENABLED", True)
+    RATELIMIT_HEADERS_ENABLED = os.getenv("RATELIMIT_HEADERS_ENABLED", None)
+    RATELIMIT_STORAGE_URL = os.getenv("RATELIMIT_STORAGE_URL", "")
+    RATELIMIT_STORAGE_OPTIONS = os.getenv("RATELIMIT_STORAGE_OPTIONS", None)
+    RATELIMIT_STRATEGY = os.getenv("RATELIMIT_STRATEGY", "fixed-window")
+    RATELIMIT_GLOBAL = os.getenv("RATELIMIT_GLOBAL", None)
+    RATELIMIT_APPLICATION = os.getenv("RATELIMIT_APPLICATION", None)
+    RATELIMIT_IN_MEMORY_FALLBACK = os.getenv("RATELIMIT_IN_MEMORY_FALLBACK", None)
+    RATELIMIT_IN_MEMORY_FALLBACK_ENABLED = os.getenv("RATELIMIT_IN_MEMORY_FALLBACK_ENABLED", None)
+
+
 class C:
     ENABLED = "RATELIMIT_ENABLED"
     HEADERS_ENABLED = "RATELIMIT_HEADERS_ENABLED"
@@ -36,7 +49,6 @@ class C:
     STORAGE_OPTIONS = "RATELIMIT_STORAGE_OPTIONS"
     STRATEGY = "RATELIMIT_STRATEGY"
     GLOBAL_LIMITS = "RATELIMIT_GLOBAL"
-    DEFAULT_LIMITS = "RATELIMIT_DEFAULT"
     APPLICATION_LIMITS = "RATELIMIT_APPLICATION"
     IN_MEMORY_FALLBACK = "RATELIMIT_IN_MEMORY_FALLBACK"
     IN_MEMORY_FALLBACK_ENABLED = "RATELIMIT_IN_MEMORY_FALLBACK_ENABLED"
@@ -52,11 +64,29 @@ class HEADERS:
 MAX_BACKEND_CHECKS = 5
 
 
-def get_setting(settings: Any, key: str, default_value: Optional[T] = None) -> T:
+def get_setting(key: str, default_value: Optional[T] = None) -> T:
     # handle case on ci where settings.key == empty string
+    settings = Settings()
     setting = getattr(settings, key, default_value) or default_value
     return cast(T, setting)
 
+def _get_client_identity(request: Request) -> str:
+    auth = request.headers.get("Authorization", "").replace(" ", "")
+    ip = get_client_ip(request)
+    return f"{ip}_{auth}"
+
+
+def get_client_ip(request: Request) -> str:
+    headers = request.headers
+    if "x-forwarded-for" in headers:
+        ip_list = headers["x-forwarded-for"]
+        # Only get client ip
+        ip: str = ip_list.split(",")[0]
+    elif "x-real-ip" in headers:
+        ip = headers["x-real-ip"]
+    else:
+        ip = request.client.host
+    return ip
 
 class Limiter:
     """
@@ -98,8 +128,7 @@ class Limiter:
 
     def __init__(
         self,
-        settings: Any,
-        key_func: Callable[..., str],
+        key_func: Callable[..., str] = _get_client_identity,
         default_limits: List[StrOrCallableStr] = [],
         application_limits: List[StrOrCallableStr] = [],
         headers_enabled: bool = False,
@@ -113,6 +142,7 @@ class Limiter:
         storage_options: Dict[str, Any] = {},
         in_memory_fallback: List[StrOrCallableStr] = [],
         retry_after: Optional[str] = None,
+        limit_default: Optional[str] = "60/minute"
     ) -> None:
         """
         Configure the rate limiter at app level
@@ -131,12 +161,12 @@ class Limiter:
         self._headers_enabled = headers_enabled
         self._header_mapping: Dict[int, str] = {}
         self._retry_after: Optional[str] = retry_after
-        self._storage_options = storage_options or get_setting(settings, C.STORAGE_OPTIONS, {})
+        self._storage_options = storage_options or get_setting(C.STORAGE_OPTIONS, {})
         self._swallow_errors = swallow_errors
         self._key_func = key_func
         self._key_prefix = key_prefix
-        self._strategy = strategy or get_setting(settings, C.STRATEGY, "fixed-window")
-        self._storage_uri = storage_uri or get_setting(settings, C.STORAGE_URL, "memory://")
+        self._strategy = strategy or get_setting(C.STRATEGY, "fixed-window")
+        self._storage_uri = storage_uri or get_setting(C.STORAGE_URL, "memory://")
         self._update_header_map()
 
         for limit in set(default_limits):
@@ -160,19 +190,19 @@ class Limiter:
 
         self._limiter: RateLimiter = STRATEGIES[self._strategy](self._storage)
 
-        app_limits: Optional[StrOrCallableStr] = get_setting(settings, C.APPLICATION_LIMITS, None)
+        app_limits: Optional[StrOrCallableStr] = get_setting(C.APPLICATION_LIMITS, None)
         if not self._application_limits and app_limits:
             self._application_limits = [LimitGroup(app_limits, self._key_func, scope="global")]
 
-        conf_limits: Optional[StrOrCallableStr] = get_setting(settings, C.DEFAULT_LIMITS, None)
+        conf_limits: Optional[StrOrCallableStr] = limit_default
         if not self._default_limits and conf_limits:
             self._default_limits = [LimitGroup(conf_limits, self._key_func)]
 
-        self._init_fallback_limiter(settings)
+        self._init_fallback_limiter()
 
-    def _init_fallback_limiter(self, settings) -> None:
-        fallback_enabled = get_setting(settings, C.IN_MEMORY_FALLBACK_ENABLED, False)
-        fallback_limits: Optional[StrOrCallableStr] = get_setting(settings, C.IN_MEMORY_FALLBACK, None)
+    def _init_fallback_limiter(self) -> None:
+        fallback_enabled = get_setting(C.IN_MEMORY_FALLBACK_ENABLED, False)
+        fallback_limits: Optional[StrOrCallableStr] = get_setting(C.IN_MEMORY_FALLBACK, None)
         if not self._in_memory_fallback and fallback_limits:
             self._in_memory_fallback = [LimitGroup(fallback_limits, self._key_func)]
         if not self._in_memory_fallback_enabled:
